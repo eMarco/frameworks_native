@@ -701,46 +701,42 @@ void HWComposer::eventControl(int disp, int event, int enabled) {
               break;
 #else
     switch(event) {
-        case EVENT_VSYNC:
-            if (mHwc && !mDebugForceFakeVSync && hwcHasVsyncEvent(mHwc)) {
-                if (hwcHasApiVersion(mHwc, HWC_DEVICE_API_VERSION_1_0)) {
-                    // NOTE: we use our own internal lock here because we have to
-                    // call into the HWC with the lock held, and we want to make
-                    // sure that even if HWC blocks (which it shouldn't), it won't
-                    // affect other threads.
-                    Mutex::Autolock _l(mEventControlLock);
-                    const int32_t eventBit = 1UL << event;
-                    const int32_t newValue = enabled ? eventBit : 0;
-                    const int32_t oldValue = mDisplayData[disp].events & eventBit;
-                    if (newValue != oldValue) {
-                        ATRACE_CALL();
-                        err = mHwc->eventControl(mHwc, disp, event, enabled);
-                        if (!err) {
-                            int32_t& events(mDisplayData[disp].events);
-                            events = (events & ~eventBit) | newValue;
-                        }
-                    }
-                } else {
-                    err = hwcEventControl(mHwc, disp, event, enabled);
-                }
-                // error here should not happen -- not sure what we should
-                // do if it does.
-                ALOGE_IF(err, "eventControl(%d, %d) failed %s",
-                         event, enabled, strerror(-err));
-        }
-            if (err == NO_ERROR && mVSyncThread != NULL) {
-                mVSyncThread->setEnabled(enabled);
-            }
-            break;
-        case EVENT_ORIENTATION:
-            // Orientation event
-            if (hwcHasApiVersion(mHwc, HWC_DEVICE_API_VERSION_1_0))
-                err = hwcEventControl(mHwc, disp, event, enabled);
-            break;
-        default:
-            ALOGW("eventControl got unexpected event %d (disp=%d en=%d)",
-                    event, disp, enabled);
-            break;
+         case EVENT_VSYNC:
+            if (mHwc && !mDebugForceFakeVSync) {
+                // NOTE: we use our own internal lock here because we have to
+                // call into the HWC with the lock held, and we want to make
+                // sure that even if HWC blocks (which it shouldn't), it won't
+                // affect other threads.
+                Mutex::Autolock _l(mEventControlLock);
+		const int32_t eventBit = 1UL << event;
+		const int32_t newValue = enabled ? eventBit : 0;
+		const int32_t oldValue = mDisplayData[disp].events & eventBit;
+		if (newValue != oldValue) {
+		ATRACE_CALL();
+		err = mHwc->eventControl(mHwc, disp, event, enabled);
+		if (!err) {
+		int32_t& events(mDisplayData[disp].events);
+		events = (events & ~eventBit) | newValue;
+		}
+		}
+		// error here should not happen -- not sure what we should
+		// do if it does.
+		ALOGE_IF(err, "eventControl(%d, %d) failed %s",
+		event, enabled, strerror(-err));
+		}
+		if (err == NO_ERROR && mVSyncThread != NULL) {
+		mVSyncThread->setEnabled(enabled);
+		}
+		break;
+		case EVENT_ORIENTATION:
+		// Orientation event
+		if (hwcHasApiVersion(mHwc, HWC_DEVICE_API_VERSION_1_0))
+		err = mHwc->eventControl(mHwc, disp, event, enabled);
+		break;
+		default:
+		ALOGW("eventControl got unexpected event %d (disp=%d en=%d)",
+		event, disp, enabled);
+		break;
 #endif
     }
     return;
@@ -1030,12 +1026,6 @@ status_t HWComposer::commit() {
                         disp.outbufAcquireFence->dup();
                 }
             }
-            err = mHwc->set(mHwc, mNumDisplays, mLists);
-        } else {
-            err = hwcSet(mHwc, eglGetCurrentDisplay(), eglGetCurrentSurface(EGL_DRAW), mNumDisplays,
-                    const_cast<hwc_display_contents_1_t**>(mLists));
-        }
-
 #ifdef OLD_HWC_API
         if (hwcHasApiVersion(mHwc, HWC_DEVICE_API_VERSION_1_0)) {
             err = hwcSet(mHwc, mLists[0]->dpy, mLists[0]->sur, mNumDisplays,
@@ -1076,6 +1066,7 @@ status_t HWComposer::commit() {
 status_t HWComposer::release(int disp) {
     LOG_FATAL_IF(disp >= VIRTUAL_DISPLAY_ID_BASE);
     if (mHwc) {
+#ifdef OLD_HWC_API
         if (hwcHasVsyncEvent(mHwc)) {
             eventControl(disp, HWC_EVENT_VSYNC, 0);
         }
@@ -1227,7 +1218,7 @@ public:
         // not supported on VERSION_03
         return Fence::NO_FENCE;
     }
-
+#ifdef OLD_HWC_API
     bool isStatusBar(hwc_layer_t* layer) {
         /* Getting the display details into the iterator is more trouble than
          * it's worth, so do a rough approximation */
@@ -1260,6 +1251,10 @@ public:
             forceSkip = true;
         }
         if (alpha < 0xFF || forceSkip) {
+#else
+    virtual void setPlaneAlpha(uint8_t alpha) {
+        if (alpha < 0xFF) {
+#endif
             getLayer()->flags |= HWC_SKIP_LAYER;
         }
     }
