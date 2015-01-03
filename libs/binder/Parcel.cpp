@@ -721,6 +721,13 @@ status_t Parcel::writeString16(const char16_t* str, size_t len)
     return err;
 }
 
+#if __cplusplus >= 201103L && defined(OMAP_TUNA)
+status_t Parcel::writeString16(const uint16_t* str, size_t len)
+{
+    return writeString16(reinterpret_cast<const char16_t*>(str), len);
+}
+#endif
+
 status_t Parcel::writeStrongBinder(const sp<IBinder>& val)
 {
     return flatten_binder(ProcessState::self(), val, this);
